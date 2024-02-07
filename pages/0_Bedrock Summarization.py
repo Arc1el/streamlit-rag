@@ -82,7 +82,7 @@ model = col2.selectbox(
     ('Email', 'Home phone', 'Mobile phone'))
 col2.write("`"+model+"`")
 
-st.write(os.environ['HOME'])
+st.write(os.environ['SECRET'])
 
 
 
