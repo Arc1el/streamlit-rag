@@ -1,91 +1,131 @@
 from typing import Any
 import os
 import numpy as np
+import boto3
 
 import streamlit as st
 from streamlit.hello.utils import show_code
 
+def get_bedrock_models(region):
+    aws_access_key_id = os.environ['AWS_ACCESS_KEY']
+    aws_secret_access_key = os.environ['AWS_SECRET_KEY']
 
-def bedrock_demo() -> None:
+    client = boto3.client(
+        'bedrock',
+        aws_access_key_id=aws_access_key_id,
+        aws_secret_access_key=aws_secret_access_key,
+        region_name=region  # 예시로 사용된 리전, 실제 사용 리전에 맞게 변경하세요
+    )
 
-    # Interactive Streamlit elements, like these sliders, return their value.
-    # This gives you an extremely simple interaction model.
-    iterations = st.sidebar.slider("Level of detail", 2, 20, 10, 1)
-    separation = st.sidebar.slider("Separation", 0.7, 2.0, 0.7885)
+    # 기반 모델 리스트를 가져오는 요청
+    model_list = []
+    
+    response = client.list_foundation_models(byOutputModality='TEXT')
+    datas = response["modelSummaries"]
+    for data in datas :
+        model_list.append(data["modelId"])
+    
+    st.session_state.origin_data = datas
 
-    # Non-interactive elements return a placeholder to their location
-    # in the app. Here we're storing progress_bar to update it later.
-    progress_bar = st.sidebar.progress(0)
-
-
-    option = st.selectbox(
-        'How would you like to be contacted?',
-        ('Email', 'Home phone', 'Mobile fdphone'))
-
-    st.write('You selected:', option)
-
-    # These two elements will be filled in later, so we create a placeholder
-    # for them using st.empty()
-    frame_text = st.sidebar.empty()
-    image = st.empty()
-
+    providers = set()
 
 
-    m, n, s = 960, 640, 400
-    x = np.linspace(-m / s, m / s, num=m).reshape((1, m))
-    y = np.linspace(-n / s, n / s, num=n).reshape((n, 1))
+    for data in datas:
+        model_str = data["modelId"]
+        provider, model = model_str.split('.', 1)
+        providers.add(provider)
 
-    for frame_num, a in enumerate(np.linspace(0.0, 4 * np.pi, 100)):
-        # Here were setting value for these two elements.
-        progress_bar.progress(frame_num)
-        frame_text.text("Frame %i/100" % (frame_num + 1))
+    providers = list(providers)
 
-        # Performing some fractal wizardry.
-        c = separation * np.exp(1j * a)
-        Z = np.tile(x, (n, 1)) + 1j * np.tile(y, (1, m))
-        C = np.full((n, m), c)
-        M: Any = np.full((n, m), True, dtype=bool)
-        N = np.zeros((n, m))
+    selected_provider = col2.selectbox("프로바이더를 선택하세요", providers, index=None,)
 
-        for i in range(iterations):
-            Z[M] = Z[M] * Z[M] + C[M]
-            M[np.abs(Z) > 2] = False
-            N[M] = i
+    models = []
 
-        # Update the image placeholder by calling the image() function on it.
-        image.image(1.0 - (N / N.max()), use_column_width=True)
+    for data in datas:
+        model_str = data["modelId"]
+        provider, model = model_str.split('.', 1)
+        
+        if selected_provider == provider:
+            models.append(model)
 
-    # We clear elements by calling empty on them.
-    progress_bar.empty()
-    frame_text.empty()
+    selected_models = col3.selectbox("모델을 선택하세요", models, index=None)
 
-    # Streamlit widgets automatically run the script from top to bottom. Since
-    # this button is not connected to any other logic, it just causes a plain
-    # rerun.
-    st.button("Re-run")
+    st.session_state.selected_provider = selected_provider
+    st.session_state.selected_models = selected_models
 
 
+def get_model_desc():
+
+    model_str = str(st.session_state.selected_provider) + "." + str(st.session_state.selected_models)
+    origin_data = st.session_state.origin_data
+    
+    filtered_data = [model for model in origin_data if model["modelId"] == model_str][0]
+
+    model_name = filtered_data["modelName"]
+    provider_name = filtered_data["providerName"]
+    model_arn = filtered_data["modelArn"]
+
+    col_m1.write("###### `model_arn`")
+    col_m1.write(model_arn)
+    col_m2.write("###### `model_name`")
+    col_m2.write(model_name)
+    col_m3.write("###### `provider_name`")
+    col_m3.write(provider_name)
+
+def response_generator():
+    response = random.choice(
+        [
+            "안녕하세요",
+        ]
+    )
+    for word in response.split():
+        yield word + " "
+        time.sleep(0.05)
+    
 st.set_page_config(page_title="BedRock Demo", page_icon="📹")
-st.markdown("# Bedrock Summarization Demo")
-# st.sidebar.header("Bedrock Summarization Demo")
+st.markdown("# Bedrock Text Demo")
 config = st.container()
 col1, col2, col3 = config.columns([1,1,1])
 
+
+regions = ["us-east-1", "us-west-2", "ap-southeast-1", "ap-northeast-1", "eu-central-1"]
+
 region = col1.selectbox(
     '리전을 선택하세요',
-    ('Email', 'Home phone', 'Mobile phone'))
-col1.write("`"+region+"`")
+    regions,
+    index=1,)
+
+get_bedrock_models(region)
+st.write("")
+st.write("##### 선택된 모델정보")
+
+model_desc = st.container()
+col_m1, col_m2, col_m3 = model_desc.columns([1,0.5,0.5])
+get_model_desc()
+
+st.write("### Text Inference")
 
 
-model = col2.selectbox(
-    '모델을 선택하세요',
-    ('Email', 'Home phone', 'Mobile phone'))
-col2.write("`"+model+"`")
+import random
+import time
+# Initialize chat history
+if "messages" not in st.session_state:
+    st.session_state.messages = []
 
-st.write(os.environ['SECRET'])
+# Display chat messages from history on app rerun
+for message in st.session_state.messages:
+    with st.chat_message(message["role"]):
+        st.markdown(message["content"])
 
+# Accept user input
+if prompt := st.chat_input("What is up?"):
+    # Display user message in chat message container
+    with st.chat_message("user"):
+        st.markdown(prompt)
+    # Add user message to chat history
+    st.session_state.messages.append({"role": "user", "content": prompt})
 
-
-# bedrock_demo()
-
-# show_code(bedrock_demo)
+with st.chat_message("assistant"):
+    response = st.write_stream(response_generator())
+# Add assistant response to chat history
+st.session_state.messages.append({"role": "assistant", "content": response})
